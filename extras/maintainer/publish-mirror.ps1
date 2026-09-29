@@ -76,8 +76,42 @@ if (-not $commit) {
     throw "git subtree split produced no commit."
 }
 
-Write-Host "Split commit: $commit"
-git log --oneline -5 $commit
+# The public history carries the project's address, never a personal one. Each split commit is
+# re-created with the same tree, message and dates and only the e-mail changed, so the same private
+# history always produces the same public commits and a later publish is still a fast-forward.
+$PublicEmail = 'support@mydesktopwidget.com'
+$map = @{}
+$message = New-TemporaryFile
+
+try {
+    foreach ($old in git rev-list --reverse --topo-order $commit) {
+        $tree = (git log -1 --format=%T $old).Trim()
+        $parents = @((git log -1 --format=%P $old).Trim() -split ' ' | Where-Object { $_ } |
+            ForEach-Object { '-p'; $map[$_] })
+
+        (git log -1 --format=%B $old) -join "`n" | Set-Content -NoNewline -Path $message
+
+        $env:GIT_AUTHOR_NAME = (git log -1 --format=%an $old).Trim()
+        $env:GIT_AUTHOR_EMAIL = $PublicEmail
+        $env:GIT_AUTHOR_DATE = (git log -1 --format=%ad --date=raw $old).Trim()
+        $env:GIT_COMMITTER_NAME = (git log -1 --format=%cn $old).Trim()
+        $env:GIT_COMMITTER_EMAIL = $PublicEmail
+        $env:GIT_COMMITTER_DATE = (git log -1 --format=%cd --date=raw $old).Trim()
+
+        $map[$old] = (git commit-tree $tree @parents -F $message).Trim()
+    }
+}
+finally {
+    Remove-Item $message -ErrorAction SilentlyContinue
+    'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE',
+    'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_COMMITTER_DATE' |
+        ForEach-Object { Remove-Item "Env:$_" -ErrorAction SilentlyContinue }
+}
+
+$commit = $map[$commit]
+
+Write-Host "Public commit: $commit"
+git log --format='%h %an <%ae> %s' -5 $commit
 
 if ($DryRun) {
     Write-Host "Dry run: would push $commit to $Remote/$Branch."
