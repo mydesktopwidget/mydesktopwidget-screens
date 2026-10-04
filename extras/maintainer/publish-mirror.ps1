@@ -59,6 +59,12 @@ $forbidden += $root
 $forbidden += $root.Replace('/', '\')
 $forbidden = $forbidden | Where-Object { $_ } | Sort-Object -Unique
 
+# Commit messages travel with the history, and a message is easier to slip a private path into than a
+# file: "the contract in <folder>/..." reads as an ordinary note. So a public message may not name any
+# other top-level folder of this repository either - read here, so this script names none of them.
+$privateFolders = git ls-tree -d --name-only HEAD | Where-Object { $_ -and $_ -ne $Prefix } |
+    ForEach-Object { "$_/" }
+
 $files = git ls-tree -r --name-only HEAD -- $Prefix
 $hits = foreach ($file in $files) {
     $text = git show "HEAD:$file"
@@ -89,7 +95,18 @@ try {
         $parents = @((git log -1 --format=%P $old).Trim() -split ' ' | Where-Object { $_ } |
             ForEach-Object { '-p'; $map[$_] })
 
-        (git log -1 --format=%B $old) -join "`n" | Set-Content -NoNewline -Path $message
+        $body = (git log -1 --format=%B $old) -join "`n"
+
+        foreach ($word in @($forbidden) + @($privateFolders)) {
+            if ($body.Contains($word)) {
+                throw ("Refusing to publish: the message of commit $((git log -1 --format=%h $old).Trim()) " +
+                    "('$((git log -1 --format=%s $old).Trim())') names something private. Correct it " +
+                    "without rewriting the private history: git replace the commit with one whose " +
+                    "message does not, then run this again.")
+            }
+        }
+
+        $body | Set-Content -NoNewline -Path $message
 
         $env:GIT_AUTHOR_NAME = (git log -1 --format=%an $old).Trim()
         $env:GIT_AUTHOR_EMAIL = $PublicEmail
