@@ -89,6 +89,11 @@ bool Client::onMissing(const char* id, MissingCallback callback) {
   return true;
 }
 
+void Client::setScreen(uint16_t width, uint16_t height) {
+  screenWidth_ = width;
+  screenHeight_ = height;
+}
+
 void Client::loop(uint32_t now) {
   if (!started_) {
     started_ = true;
@@ -185,8 +190,13 @@ void Client::handleFrame(uint32_t length, uint32_t now) {
     return;
   }
 
-  // The first byte says what the frame is: `{` is JSON. 0x01 is reserved for image tiles, which a
-  // values-only device is never sent.
+  // The first byte says what the frame is: `{` is JSON, 0x01 an image tile - which a values-only
+  // device is never sent, and a device that did not ask for images ignores.
+  if (frame_[0] == 0x01) {
+    if (imageGranted_) handleTile(frame_, length);
+    return;
+  }
+
   if (frame_[0] != '{') return;
 
   handleJson(reinterpret_cast<const char*>(frame_), length, now);
@@ -208,6 +218,11 @@ void Client::handleJson(const char* json, size_t length, uint32_t now) {
     refusal_[0] = '\0';
     copy(machine_, sizeof(machine_), document["machine"] | "");
     lastFromHostMs_ = now;
+
+    imageGranted_ = false;
+    for (JsonVariant mode : document["modes"].as<JsonArray>()) {
+      if (std::strcmp(mode | "", "image") == 0) imageGranted_ = screenWidth_ > 0;
+    }
 
     // Re-sent on every ready: the engine never remembers a subscription.
     sendSubscribe();
@@ -270,8 +285,67 @@ void Client::dispatchTelemetry(JsonDocument& document) {
   }
 }
 
+void Client::handleTile(const uint8_t* frame, size_t length) {
+  // Every tile is acknowledged, drawn or dropped (section 5.3): the engine keeps two in flight and
+  // presumes a silent one lost, which costs the whole screen being sent again.
+  if (length < 12) {
+    ++stats_.tilesDropped;
+    return;
+  }
+
+  auto u16 = [frame](size_t at) { return uint16_t((uint16_t(frame[at]) << 8) | frame[at + 1]); };
+
+  const uint16_t sequence = u16(1);
+  const uint16_t x = u16(3), y = u16(5), w = u16(7), h = u16(9);
+  const uint8_t encoding = frame[11];
+  const uint8_t* bytes = frame + 12;
+  const size_t count = size_t(w) * h;
+  const size_t available = length - 12;
+
+  bool ok = w > 0 && h > 0 && uint32_t(x) + w <= screenWidth_ && uint32_t(y) + h <= screenHeight_ &&
+            count <= MDW_MAX_TILE_PIXELS;
+
+  if (ok && encoding == 2) {
+    ok = available == count * 2;
+    for (size_t i = 0; ok && i < count; ++i) pixels_[i] = u16(12 + i * 2);
+  } else if (ok && encoding == 3) {
+    size_t produced = 0;
+    ok = available % 3 == 0;
+    for (size_t at = 0; ok && at < available; at += 3) {
+      const uint8_t run = bytes[at];
+      const uint16_t pixel = uint16_t((uint16_t(bytes[at + 1]) << 8) | bytes[at + 2]);
+      if (run == 0 || produced + run > count) {
+        ok = false;
+        break;
+      }
+      for (uint8_t i = 0; i < run; ++i) pixels_[produced++] = pixel;
+    }
+    ok = ok && produced == count;
+  } else {
+    ok = false;
+  }
+
+  if (ok && tile_) {
+    tile_(x, y, w, h, pixels_);
+    ++stats_.tiles;
+  } else {
+    ++stats_.tilesDropped;
+  }
+
+  sendDrawn(sequence);
+}
+
+void Client::sendDrawn(uint16_t sequence) {
+  JsonDocument document;
+  document["v"] = 1;
+  document["type"] = "drawn";
+  document["tile"] = sequence;
+  sendJson(document);
+}
+
 void Client::lose() {
   attached_ = false;
+  imageGranted_ = false;
 
   for (size_t i = 0; i < subscriptionCount_; ++i) {
     Subscription& s = subscriptions_[i];
@@ -296,6 +370,13 @@ void Client::announce(uint32_t now) {
   if (board_[0] != '\0') document["board"] = board_;
   if (firmware_[0] != '\0') document["firmware"] = firmware_;
   document["modes"].add("values");
+
+  if (screenWidth_ > 0 && screenHeight_ > 0) {
+    document["modes"].add("image");
+    document["screen"]["width"] = screenWidth_;
+    document["screen"]["height"] = screenHeight_;
+    document["maxFrame"] = MDW_MAX_FRAME;
+  }
 
   sendJson(document);
 }

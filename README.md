@@ -17,7 +17,7 @@ void setup() {
 void loop() { mdw.loop(); }
 ```
 
-> **Version 0.1.0.** The library works end to end on the Cheap Yellow Display. It is not yet in the
+> **Version 0.2.0.** The library works end to end on the Cheap Yellow Display, values and pictures. It is not yet in the
 > Arduino Library Manager or the PlatformIO registry, and it needs the first MyDesktopWidget release
 > with USB screens.
 
@@ -70,6 +70,9 @@ The screen appears in *Settings > USB screens* with its port, board and library 
 | `mdw.onMissing(id, [] { })` | Calls back once when a reading has no value. |
 | `mdw.onText(id, [](const char* text) { })` | For readings whose value is words, such as a media title. |
 | `mdw.onConnection([](bool connected, const char* machine) { })` | MyDesktopWidget came or went. It counts as gone after 5 seconds without a message. |
+| `mdw.setScreen(width, height)` | Optional, before `begin`: this board has a screen, so MyDesktopWidget may draw one of its skins on it. |
+| `mdw.onTile([](uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t* pixels) { })` | A piece of that picture, as RGB565 values, to draw at `x, y`. With TFT_eSPI: `tft.setSwapBytes(true)` once, then `tft.pushImage(x, y, w, h, pixels)`. |
+| `mdw.showsImages()` | Whether MyDesktopWidget agreed to send pictures. |
 | `mdw.loop()` | Call it from `loop()`, often. It never blocks. |
 | `mdw.connected()`, `mdw.machine()`, `mdw.refusal()`, `mdw.stats()` | The link's state, the PC's name, why the PC refused this screen (if it did), and counters. |
 
@@ -94,7 +97,7 @@ about the size of its memory.
 | `examples/` | The example sketches |
 | `extras/boards/` | Board profiles, their schema, and display setups |
 | `extras/tests/` | Off-device tests of the protocol (`host/run.ps1`) and a compile check of every example |
-| `extras/firmware/` | The ready firmware for plug-and-play use (planned) |
+| `extras/firmware/` | The ready firmware: flash it, then pick a skin for the screen in MyDesktopWidget. Until one is picked it shows CPU and memory |
 
 ## Supported hardware
 

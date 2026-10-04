@@ -330,6 +330,111 @@ void subscriptionsAreBounded() {
   CHECK(!other.client.subscribe("gpu.load", [](const char*, float) {}));     // and only a family takes it
 }
 
+
+// ---- Image mode (engine-device.md section 5) -----------------------------------------------------
+
+const char* kReadyImage = R"({"v":1,"type":"ready","machine":"DESK-PC","commands":[],"modes":["values","image"]})";
+
+std::string tile(uint16_t seq, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t encoding, const std::string& pixels) {
+  std::string t;
+  t += char(0x01);
+  for (uint16_t v : {seq, x, y, w, h}) {
+    t += char(v >> 8);
+    t += char(v & 0xFF);
+  }
+  t += char(encoding);
+  return t + pixels;
+}
+
+std::string run(uint8_t count, uint16_t pixel) {
+  return std::string{char(count), char(pixel >> 8), char(pixel & 0xFF)};
+}
+
+struct Drawn {
+  uint16_t x = 0, y = 0, w = 0, h = 0;
+  std::vector<uint16_t> pixels;
+};
+
+struct ImageRig : Rig {
+  std::vector<Drawn> drawn;
+
+  ImageRig() {
+    client.setScreen(320, 240);
+    client.onTile([this](uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t* p) {
+      drawn.push_back({x, y, w, h, std::vector<uint16_t>(p, p + size_t(w) * h)});
+    });
+    step();
+    port.frame(kReadyImage);
+    step(10);
+  }
+
+  void send(const std::string& t) {
+    port.raw(FakePort::header(t.size()) + t);
+    step(10);
+  }
+
+  int acks(int sequence) const {
+    const std::string needle = std::string(R"("tile":)") + std::to_string(sequence);
+    int n = 0;
+    for (const auto& s : port.sent) n += (s.find(R"("type":"drawn")") != std::string::npos && s.find(needle) != std::string::npos) ? 1 : 0;
+    return n;
+  }
+};
+
+void anImageScreenAsksForImagesWithItsSize() {
+  ImageRig rig;
+  const std::string* attach = rig.port.last("attach");
+  CHECK(attach != nullptr && attach->find(R"("modes":["values","image"])") != std::string::npos);
+  CHECK(attach != nullptr && attach->find(R"("screen":{"width":320,"height":240})") != std::string::npos);
+  CHECK(rig.client.showsImages());
+
+  Rig plain;
+  plain.step();
+  CHECK(plain.port.last("attach")->find("image") == std::string::npos);  // no screen, no images
+}
+
+void aRunLengthTileIsDrawnAndAcknowledged() {
+  ImageRig rig;
+  rig.send(tile(7, 40, 80, 2, 2, 3, run(3, 0xF800) + run(1, 0x001F)));
+
+  CHECK(rig.drawn.size() == 1);
+  CHECK(rig.drawn[0].x == 40 && rig.drawn[0].y == 80 && rig.drawn[0].w == 2 && rig.drawn[0].h == 2);
+  CHECK((rig.drawn[0].pixels == std::vector<uint16_t>{0xF800, 0xF800, 0xF800, 0x001F}));
+  CHECK(rig.acks(7) == 1);
+}
+
+void aRawTileIsDrawnBigEndian() {
+  ImageRig rig;
+  rig.send(tile(1, 0, 0, 2, 1, 2, std::string("\x12\x34\xAB\xCD", 4)));
+
+  CHECK(rig.drawn.size() == 1);
+  CHECK((rig.drawn[0].pixels == std::vector<uint16_t>{0x1234, 0xABCD}));
+}
+
+/// Dropped, and acknowledged anyway: the engine presumes a silent tile lost and resends everything.
+void aTileThatCannotBeDrawnIsStillAcknowledged() {
+  ImageRig rig;
+  rig.send(tile(1, 0, 0, 2, 2, 3, run(3, 1)));                     // too few pixels
+  rig.send(tile(2, 0, 0, 2, 2, 3, run(3, 1) + run(3, 1)));         // too many
+  rig.send(tile(3, 318, 0, 4, 1, 3, run(4, 1)));                   // off the right edge
+  rig.send(tile(4, 0, 0, 41, 40, 3, run(255, 1)));                 // bigger than this board decodes
+  rig.send(tile(5, 0, 0, 1, 1, 1, "\xFF\xD8"));                    // JPEG: not in protocol 1
+
+  CHECK(rig.drawn.empty());
+  CHECK(rig.client.stats().tilesDropped == 5);
+  for (int s = 1; s <= 5; ++s) CHECK(rig.acks(s) == 1);
+}
+
+void aDeviceThatDidNotAskIgnoresTiles() {
+  Rig rig;
+  rig.attach();
+  const std::string t = tile(1, 0, 0, 1, 1, 3, run(1, 1));
+  rig.port.raw(FakePort::header(t.size()) + t);
+  rig.step(10);
+
+  CHECK(rig.port.count("drawn") == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -351,6 +456,11 @@ int main() {
       {"a refusal is kept and asked about slowly", aRefusalIsKeptAndAskedAboutSlowly},
       {"subscribing while connected sends at once", subscribingWhileConnectedSendsTheNewListAtOnce},
       {"subscriptions are bounded", subscriptionsAreBounded},
+      {"an image screen asks for images with its size", anImageScreenAsksForImagesWithItsSize},
+      {"a run-length tile is drawn and acknowledged", aRunLengthTileIsDrawnAndAcknowledged},
+      {"a raw tile is drawn big-endian", aRawTileIsDrawnBigEndian},
+      {"a tile that cannot be drawn is still acknowledged", aTileThatCannotBeDrawnIsStillAcknowledged},
+      {"a device that did not ask ignores tiles", aDeviceThatDidNotAskIgnoresTiles},
   };
 
   for (const Test& test : tests) {

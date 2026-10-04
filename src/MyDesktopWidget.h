@@ -23,7 +23,7 @@
 
 #include "mdw/Client.h"
 
-#define MYDESKTOPWIDGET_VERSION "0.1.0"
+#define MYDESKTOPWIDGET_VERSION "0.2.0"
 
 class MyDesktopWidget {
  public:
@@ -45,6 +45,18 @@ class MyDesktopWidget {
   bool onMissing(const char* id, mdwlib::MissingCallback callback) { return client_.onMissing(id, std::move(callback)); }
   void onConnection(mdwlib::ConnectionCallback callback) { client_.onConnection(std::move(callback)); }
   void onPaused(mdwlib::PausedCallback callback) { client_.onPaused(std::move(callback)); }
+
+  /// Image mode: asks MyDesktopWidget to draw one of its skins on this screen. Call before begin(),
+  /// with the panel size in the orientation you draw in - 320, 240 for a Cheap Yellow Display on its
+  /// side. The skin is chosen on the PC, in Settings > USB screens.
+  void setScreen(uint16_t width, uint16_t height) { client_.setScreen(width, height); }
+
+  /// Called with each tile of the picture: draw `w x h` RGB565 pixels at (x, y). With TFT_eSPI that is
+  /// `tft.pushImage(x, y, w, h, pixels)` after `tft.setSwapBytes(true)`.
+  void onTile(mdwlib::TileCallback callback) { client_.onTile(std::move(callback)); }
+
+  /// Whether MyDesktopWidget granted image mode on this connection.
+  bool showsImages() const { return client_.showsImages(); }
 
   /// Call from loop(), as often as you can. It never blocks.
   void loop() { client_.loop(millis()); }

@@ -26,6 +26,12 @@
 #define MDW_MAX_SUBSCRIPTIONS 16
 #endif
 
+#ifndef MDW_MAX_TILE_PIXELS
+// The largest tile this device decodes, in pixels: 40 x 40, which is what MyDesktopWidget sends a board
+// whose frame ceiling is 4 KB or more. A bigger tile is acknowledged and dropped.
+#define MDW_MAX_TILE_PIXELS 1600
+#endif
+
 #ifndef MDW_MAX_ID_LENGTH
 // The protocol's own limit on a sensor id.
 #define MDW_MAX_ID_LENGTH 64
@@ -54,6 +60,10 @@ using MissingCallback = std::function<void()>;
 using ConnectionCallback = std::function<void(bool connected, const char* machine)>;
 using PausedCallback = std::function<void(const char* reason, const char* message)>;
 
+/// One tile of the picture MyDesktopWidget draws for this screen: `w x h` RGB565 pixels, row by row,
+/// to be drawn with its top-left corner at (x, y). The pixels are valid only during the call.
+using TileCallback = std::function<void(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t* pixels)>;
+
 /// Counters, for a sketch that wants to show what the link is doing.
 struct Stats {
   uint32_t frames = 0;        // whole frames received
@@ -61,6 +71,8 @@ struct Stats {
   uint32_t oversized = 0;     // frames larger than MDW_MAX_FRAME, read past and not stored
   uint32_t stalls = 0;        // frames that stopped half way
   uint32_t malformed = 0;     // frames that were not valid JSON
+  uint32_t tiles = 0;         // image tiles drawn
+  uint32_t tilesDropped = 0;  // image tiles that could not be drawn (and were still acknowledged)
 };
 
 class Client {
@@ -90,6 +102,16 @@ class Client {
 
   void onConnection(ConnectionCallback callback) { connection_ = std::move(callback); }
   void onPaused(PausedCallback callback) { paused_ = std::move(callback); }
+
+  /// Asks for image mode: MyDesktopWidget draws one of its skins at this size and sends it as tiles.
+  /// The size is the panel's in the orientation the sketch draws in. Call before the first loop().
+  void setScreen(uint16_t width, uint16_t height);
+
+  /// Called with each tile to draw. Without one, tiles are acknowledged and dropped.
+  void onTile(TileCallback callback) { tile_ = std::move(callback); }
+
+  /// Whether MyDesktopWidget granted image mode on this connection.
+  bool showsImages() const { return attached_ && imageGranted_; }
 
   /// Does everything. Call it from loop() with the time in milliseconds.
   void loop(uint32_t nowMs);
@@ -121,6 +143,8 @@ class Client {
   void resetFrame();
   void handleFrame(uint32_t length, uint32_t now);
   void handleJson(const char* json, size_t length, uint32_t now);
+  void handleTile(const uint8_t* frame, size_t length);
+  void sendDrawn(uint16_t sequence);
   void dispatchTelemetry(JsonDocument& document);
   void announce(uint32_t now);
   void sendSubscribe();
@@ -157,6 +181,13 @@ class Client {
   uint32_t announceEveryMs_ = kAnnounceMs;
   char machine_[65] = {0};
   char refusal_[33] = {0};
+
+  // Image mode.
+  uint16_t screenWidth_ = 0;
+  uint16_t screenHeight_ = 0;
+  bool imageGranted_ = false;
+  TileCallback tile_;
+  uint16_t pixels_[MDW_MAX_TILE_PIXELS];
 
   Stats stats_;
 };
