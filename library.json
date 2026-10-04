@@ -1,6 +1,6 @@
 {
   "name": "MyDesktopWidget",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Show live PC stats from MyDesktopWidget on an ESP32 screen.",
   "keywords": "esp32, pc monitor, hardware monitor, system monitor, display, lvgl",
   "repository": {
@@ -15,9 +15,20 @@
   ],
   "license": "MIT",
   "homepage": "https://github.com/mydesktopwidget/mydesktopwidget-screens",
-  "frameworks": ["arduino", "espidf"],
-  "platforms": ["espressif32"],
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
   "export": {
-    "exclude": ["extras/firmware", "extras/maintainer"]
+    "exclude": [
+      "extras/firmware",
+      "extras/maintainer",
+      "extras/tests"
+    ]
+  },
+  "dependencies": {
+    "bblanchon/ArduinoJson": "^7.0.0"
   }
 }

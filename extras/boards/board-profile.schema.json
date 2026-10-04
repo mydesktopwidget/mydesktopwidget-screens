@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mydesktopwidget/mydesktopwidget-screens/extras/boards/board-profile.schema.json",
+  "title": "MyDesktopWidget Screens board profile",
+  "description": "An ESP32 board and its screen: enough for the ready firmware to drive it without recompiling.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "status", "chip", "display"],
+  "properties": {
+    "schema": { "const": 1 },
+    "id": {
+      "description": "Lowercase letters, digits and dashes. Sent to MyDesktopWidget as the board's name.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "status": {
+      "description": "official: tested on real hardware by the maintainers. community: supported by its author.",
+      "enum": ["official", "community"]
+    },
+    "notes": { "type": "string", "maxLength": 500 },
+    "chip": { "enum": ["esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c6"] },
+    "usb": {
+      "description": "USB vendor:product ids of the board's USB-serial bridge, uppercase hex.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9A-F]{4}:[0-9A-F]{4}$" }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver", "width", "height", "spi"],
+      "properties": {
+        "driver": { "enum": ["ILI9341", "ST7789", "ST7796", "ILI9488", "GC9A01"] },
+        "init": {
+          "description": "Which initialisation sequence. Two panels with one driver chip can need different ones: the Cheap Yellow Display's ILI9341 needs TFT_eSPI's ILI9341_2_DRIVER and shows noise with the default.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "width": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "rotation": { "enum": [0, 1, 2, 3] },
+        "colourOrder": { "enum": ["RGB", "BGR"] },
+        "invert": { "type": "boolean" },
+        "spi": { "$ref": "#/$defs/spi" },
+        "backlight": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pin"],
+          "properties": {
+            "pin": { "$ref": "#/$defs/pin" },
+            "activeHigh": { "type": "boolean" },
+            "pwm": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "touch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["driver"],
+      "properties": {
+        "driver": { "enum": ["XPT2046", "CST816S", "GT911", "FT6236"] },
+        "spi": { "$ref": "#/$defs/spi" },
+        "irq": { "$ref": "#/$defs/pin" }
+      }
+    },
+    "led": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["red", "green", "blue"],
+      "properties": {
+        "red": { "$ref": "#/$defs/pin" },
+        "green": { "$ref": "#/$defs/pin" },
+        "blue": { "$ref": "#/$defs/pin" },
+        "activeLow": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "pin": { "type": "integer", "minimum": -1, "maximum": 48 },
+    "spi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sclk", "mosi", "cs"],
+      "properties": {
+        "host": { "enum": ["HSPI", "VSPI", "FSPI"] },
+        "sclk": { "$ref": "#/$defs/pin" },
+        "mosi": { "$ref": "#/$defs/pin" },
+        "miso": { "$ref": "#/$defs/pin" },
+        "cs": { "$ref": "#/$defs/pin" },
+        "dc": { "$ref": "#/$defs/pin" },
+        "rst": { "$ref": "#/$defs/pin" },
+        "frequency": { "type": "integer", "minimum": 1000000, "maximum": 80000000 }
+      }
+    }
+  }
+}
