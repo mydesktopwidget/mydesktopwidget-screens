@@ -18,6 +18,9 @@ which pushes only this folder's history.
   documents. This file and the READMEs are written for the public.
 - **Only committed work is published**, and publishing is a deliberate step: commit, then run the
   script (`-DryRun` first).
+- **Every public commit is Lucas Riechelmann Ramos's alone**: the script authors it under his GitHub
+  no-reply address and strips any `Co-Authored-By:` line. No commit message, release note or registry
+  listing for this library names a co-author.
 
 ## Rules
 
