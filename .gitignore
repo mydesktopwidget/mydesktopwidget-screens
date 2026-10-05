@@ -13,3 +13,7 @@ build/
 *.bin
 *.elf
 *.map
+
+# Python (the SquareLine script and its tests). A .pyc records the path it was compiled from.
+__pycache__/
+*.pyc

@@ -8,9 +8,11 @@
     `git subtree split`, so only the history of this folder is pushed - nothing else from the
     private repository travels with it.
 
-    Only COMMITTED work is published. Before pushing, every file in the folder's committed tree is
-    checked for text that belongs to the private repository (its remote's host name, its own name
-    and its path on disk), read from git at run time so this script names none of them.
+    Only COMMITTED work is published. Before pushing, every file in every public commit - the
+    history, not only the latest tree - is checked for text that belongs to the private repository
+    (its remote's host name, its own name and its path on disk), read from git at run time so this
+    script names none of them. Build leftovers (__pycache__, *.pyc) are left out of every public
+    commit: a compiled Python file carries the absolute path of its source.
 
 .PARAMETER DryRun
     Split and check, then print what would be pushed without pushing.
@@ -87,11 +89,44 @@ if (-not $commit) {
 # history always produces the same public commits and a later publish is still a fast-forward.
 $PublicEmail = 'support@mydesktopwidget.com'
 $map = @{}
+
+# Never public, whatever was committed: a .pyc records the absolute path it was compiled from, which is
+# a path on the maintainer's machine. Two were committed by mistake on 2026-10-05 and are dropped here,
+# deterministically, so the same private history still makes the same public commits.
+$neverPublic = '(^|/)__pycache__/|\.pyc$'
+
+function Get-PublicTree([string] $tree) {
+    $drop = @(git ls-tree -r --name-only $tree | Where-Object { $_ -match $neverPublic })
+    if ($drop.Count -eq 0) { return $tree }
+
+    $index = New-TemporaryFile
+    try {
+        $env:GIT_INDEX_FILE = $index.FullName
+        git read-tree $tree
+        git rm --cached --quiet -- @drop | Out-Null
+        return (git write-tree).Trim()
+    }
+    finally {
+        Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+        Remove-Item $index -ErrorAction SilentlyContinue
+    }
+}
 $message = New-TemporaryFile
 
 try {
     foreach ($old in git rev-list --reverse --topo-order $commit) {
-        $tree = (git log -1 --format=%T $old).Trim()
+        $tree = Get-PublicTree (git log -1 --format=%T $old).Trim()
+
+        # Every public commit's files, not only the latest tree's: the history is published too, and a
+        # file removed later would otherwise still carry a private name into it.
+        foreach ($word in $forbidden) {
+            $leaks = @(git grep -l -a -F -e $word $tree 2>$null) |
+                Sort-Object -Unique
+            if ($leaks) {
+                throw ("Refusing to publish: commit $((git log -1 --format=%h $old).Trim()) has files naming " +
+                    "something private:`n$($leaks -join "`n")")
+            }
+        }
         $parents = @((git log -1 --format=%P $old).Trim() -split ' ' | Where-Object { $_ } |
             ForEach-Object { '-p'; $map[$_] })
 
