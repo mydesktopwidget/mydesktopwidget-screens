@@ -84,10 +84,14 @@ if (-not $commit) {
     throw "git subtree split produced no commit."
 }
 
-# The public history carries the project's address, never a personal one. Each split commit is
-# re-created with the same tree, message and dates and only the e-mail changed, so the same private
-# history always produces the same public commits and a later publish is still a fast-forward.
-$PublicEmail = 'support@mydesktopwidget.com'
+# The public history is Lucas's, under his GitHub no-reply address: it links every commit to his
+# account without publishing a personal e-mail. *Was support@mydesktopwidget.com until 2026-10-05* - an
+# address GitHub links to nobody, so the only account a public commit showed was a co-author's.
+# Each split commit is re-created with the same tree, dates and author name, its e-mail set and its
+# message cleaned, so the same private history always produces the same public commits and a later
+# publish is still a fast-forward.
+$PublicName = 'Lucas Riechelmann Ramos'
+$PublicEmail = '10465626+lucasriechelmann@users.noreply.github.com'
 $map = @{}
 
 # Never public, whatever was committed: a .pyc records the absolute path it was compiled from, which is
@@ -130,7 +134,10 @@ try {
         $parents = @((git log -1 --format=%P $old).Trim() -split ' ' | Where-Object { $_ } |
             ForEach-Object { '-p'; $map[$_] })
 
-        $body = (git log -1 --format=%B $old) -join "`n"
+        # No co-author is published: the library is Lucas's. Earlier private commits carry a
+        # "Co-Authored-By:" trailer, and a public commit never does, whatever its private one says.
+        $body = ((git log -1 --format=%B $old) | Where-Object { $_ -notmatch '^\s*Co-Authored-By:' }) -join "`n"
+        $body = $body.TrimEnd() + "`n"
 
         foreach ($word in @($forbidden) + @($privateFolders)) {
             if ($body.Contains($word)) {
@@ -143,10 +150,10 @@ try {
 
         $body | Set-Content -NoNewline -Path $message
 
-        $env:GIT_AUTHOR_NAME = (git log -1 --format=%an $old).Trim()
+        $env:GIT_AUTHOR_NAME = $PublicName
         $env:GIT_AUTHOR_EMAIL = $PublicEmail
         $env:GIT_AUTHOR_DATE = (git log -1 --format=%ad --date=raw $old).Trim()
-        $env:GIT_COMMITTER_NAME = (git log -1 --format=%cn $old).Trim()
+        $env:GIT_COMMITTER_NAME = $PublicName
         $env:GIT_COMMITTER_EMAIL = $PublicEmail
         $env:GIT_COMMITTER_DATE = (git log -1 --format=%cd --date=raw $old).Trim()
 
