@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -35,6 +36,11 @@
 #ifndef MDW_MAX_ID_LENGTH
 // The protocol's own limit on a sensor id.
 #define MDW_MAX_ID_LENGTH 64
+#endif
+
+#ifndef MDW_MAX_TEXT_LENGTH
+// The longest reading in words lastText() keeps (a media title, say); a longer one is cut short.
+#define MDW_MAX_TEXT_LENGTH 64
 #endif
 
 namespace mdwlib {
@@ -100,6 +106,17 @@ class Client {
   /// Calls back when a reading has no value. Absent is not zero: show "--", not 0.
   bool onMissing(const char* id, MissingCallback callback);
 
+  /// Asks for a reading with no callback, for last() and lastText() - what a designer tool's variables
+  /// need. Calling it again for the same id does nothing.
+  bool watch(const char* id);
+
+  /// The last value of a reading this device asked for, or NAN when it has none: not asked for, not yet
+  /// sent, missing on the PC, a family (`prefix*`), or MyDesktopWidget gone. Absent is never 0.
+  float last(const char* id) const;
+
+  /// The last words of a reading this device asked for, or "" when it has none.
+  const char* lastText(const char* id) const;
+
   void onConnection(ConnectionCallback callback) { connection_ = std::move(callback); }
   void onPaused(PausedCallback callback) { paused_ = std::move(callback); }
 
@@ -130,6 +147,8 @@ class Client {
     bool family = false;
     bool known = false;  // a frame has said whether it is present
     bool present = false;
+    float lastValue = NAN;
+    char lastText[MDW_MAX_TEXT_LENGTH + 1] = {0};
     ValueCallback value;
     FamilyCallback familyValue;
     TextCallback text;
@@ -137,6 +156,7 @@ class Client {
   };
 
   Subscription* find(const char* id);
+  const Subscription* find(const char* id) const;
   Subscription* findOrAdd(const char* id, bool family);
   void readAvailable(uint32_t now);
   void consume(uint8_t byte, uint32_t now);

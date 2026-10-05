@@ -5,6 +5,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -425,6 +426,68 @@ void aTileThatCannotBeDrawnIsStillAcknowledged() {
   for (int s = 1; s <= 5; ++s) CHECK(rig.acks(s) == 1);
 }
 
+/// The last value is kept for a reading the sketch watches - and absent is never 0: NAN before the
+/// first frame, when the PC stops sending it, and when MyDesktopWidget goes away.
+void theLastValueIsKeptAndAbsentIsNan() {
+  Rig rig;
+  CHECK(rig.client.watch("cpu.load.cpu_total"));
+  CHECK(rig.client.watch("media.title"));
+  CHECK(std::isnan(rig.client.last("cpu.load.cpu_total")));
+  CHECK(std::strcmp(rig.client.lastText("media.title"), "") == 0);
+
+  rig.attach();
+  CHECK(rig.port.last("subscribe")->find("cpu.load.cpu_total") != std::string::npos);
+
+  rig.port.frame(telemetry(R"({"cpu.load.cpu_total":37.5})", R"({"media.title":"Clair de lune"})"));
+  rig.step(10);
+  CHECK(rig.client.last("cpu.load.cpu_total") == 37.5f);
+  CHECK(std::strcmp(rig.client.lastText("media.title"), "Clair de lune") == 0);
+  CHECK(std::isnan(rig.client.last("media.title")));  // words are not a number
+
+  rig.port.frame(telemetry("{}"));  // both went missing on the PC
+  rig.step(10);
+  CHECK(std::isnan(rig.client.last("cpu.load.cpu_total")));
+  CHECK(std::strcmp(rig.client.lastText("media.title"), "") == 0);
+
+  rig.port.frame(telemetry(R"({"cpu.load.cpu_total":12})"));
+  rig.step(10);
+  CHECK(rig.client.last("cpu.load.cpu_total") == 12.0f);
+
+  rig.step(6000);  // MyDesktopWidget went away: a stale number would read as a live one
+  CHECK(!rig.client.connected());
+  CHECK(std::isnan(rig.client.last("cpu.load.cpu_total")));
+}
+
+/// Watching twice is one subscription; a reading never asked for, and a family, have no last value.
+void watchingIsIdempotentAndOnlyExactIdsHaveALastValue() {
+  Rig rig;
+  CHECK(rig.client.watch("cpu.load.cpu_total"));
+  CHECK(rig.client.watch("cpu.load.cpu_total"));
+  CHECK(rig.client.subscribe("cpu.load.cpu_core_*", [](const char*, float) {}));
+  rig.attach();
+
+  const std::string* sub = rig.port.last("subscribe");
+  CHECK(sub != nullptr && sub->find("cpu.load.cpu_total") == sub->rfind("cpu.load.cpu_total"));
+
+  rig.port.frame(telemetry(R"({"cpu.load.cpu_total":5,"cpu.load.cpu_core_1":7,"gpu.load.gpu":9})"));
+  rig.step(10);
+  CHECK(std::isnan(rig.client.last("gpu.load.gpu")));
+  CHECK(std::isnan(rig.client.last("cpu.load.cpu_core_*")));
+  CHECK(std::isnan(rig.client.last(nullptr)));
+}
+
+/// A word longer than the library keeps is cut short, never written past its buffer.
+void aLongTextIsCutShort() {
+  Rig rig;
+  rig.client.watch("media.title");
+  rig.attach();
+
+  const std::string longTitle(200, 'x');
+  rig.port.frame(telemetry("{}", (R"({"media.title":")" + longTitle + R"("})").c_str()));
+  rig.step(10);
+  CHECK(std::strlen(rig.client.lastText("media.title")) == MDW_MAX_TEXT_LENGTH);
+}
+
 void aDeviceThatDidNotAskIgnoresTiles() {
   Rig rig;
   rig.attach();
@@ -433,6 +496,44 @@ void aDeviceThatDidNotAskIgnoresTiles() {
   rig.step(10);
 
   CHECK(rig.port.count("drawn") == 0);
+}
+
+// The EEZ Studio binding, as a sketch writes it: a global instance and one line per variable.
+FakePort eezPort;
+mdwlib::Client eezClient{eezPort};
+}  // namespace
+
+#define MDW_EEZ_INSTANCE eezClient
+#include "mdw/Eez.h"
+
+MDW_EEZ_FLOAT(cpu_load, "cpu.load.cpu_total")
+MDW_EEZ_TEXT(media_title, "media.title")
+
+namespace {
+
+/// What EEZ's generated screens call: the getter watches its reading on first use, answers NAN or ""
+/// until the PC sends it, and the setter changes nothing - a reading is the PC's.
+void eezVariablesReadTheLastValue() {
+  uint32_t now = 1000;
+  eezClient.setIdentity("3C61053ED814", "EEZ", nullptr, "test");
+
+  CHECK(std::isnan(get_var_cpu_load()));
+  CHECK(std::strcmp(get_var_media_title(), "") == 0);
+
+  eezClient.loop(now);
+  eezPort.frame(kReady);
+  eezClient.loop(now += 10);
+  CHECK(eezPort.last("subscribe") != nullptr && eezPort.last("subscribe")->find("media.title") != std::string::npos);
+
+  eezPort.frame(telemetry(R"({"cpu.load.cpu_total":42})", R"({"media.title":"Gymnopedie"})"));
+  eezClient.loop(now += 10);
+  CHECK(get_var_cpu_load() == 42.0f);
+  CHECK(std::strcmp(get_var_media_title(), "Gymnopedie") == 0);
+
+  set_var_cpu_load(99.0f);
+  set_var_media_title("written by the screen");
+  CHECK(get_var_cpu_load() == 42.0f);
+  CHECK(std::strcmp(get_var_media_title(), "Gymnopedie") == 0);
 }
 
 }  // namespace
@@ -461,6 +562,10 @@ int main() {
       {"a raw tile is drawn big-endian", aRawTileIsDrawnBigEndian},
       {"a tile that cannot be drawn is still acknowledged", aTileThatCannotBeDrawnIsStillAcknowledged},
       {"a device that did not ask ignores tiles", aDeviceThatDidNotAskIgnoresTiles},
+      {"the last value is kept, and absent is NAN", theLastValueIsKeptAndAbsentIsNan},
+      {"watching is idempotent; only exact ids have a last value", watchingIsIdempotentAndOnlyExactIdsHaveALastValue},
+      {"a long text is cut short", aLongTextIsCutShort},
+      {"EEZ variables read the last value", eezVariablesReadTheLastValue},
   };
 
   for (const Test& test : tests) {

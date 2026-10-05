@@ -1,6 +1,6 @@
 {
   "name": "MyDesktopWidget",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Show live PC stats from MyDesktopWidget on an ESP32 screen.",
   "keywords": "esp32, pc monitor, hardware monitor, system monitor, display, lvgl",
   "repository": {

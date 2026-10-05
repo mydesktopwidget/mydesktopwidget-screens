@@ -22,8 +22,9 @@
 #include <Arduino.h>
 
 #include "mdw/Client.h"
+#include "mdw/Eez.h"
 
-#define MYDESKTOPWIDGET_VERSION "0.2.0"
+#define MYDESKTOPWIDGET_VERSION "0.3.0"
 
 class MyDesktopWidget {
  public:
@@ -43,6 +44,15 @@ class MyDesktopWidget {
   bool subscribe(const char* prefix, mdwlib::FamilyCallback callback) { return client_.subscribe(prefix, std::move(callback)); }
   bool onText(const char* id, mdwlib::TextCallback callback) { return client_.onText(id, std::move(callback)); }
   bool onMissing(const char* id, mdwlib::MissingCallback callback) { return client_.onMissing(id, std::move(callback)); }
+
+  /// Asks for a reading with no callback, to read it with last() or lastText() whenever you draw.
+  bool watch(const char* id) { return client_.watch(id); }
+
+  /// The last value of a reading you asked for, or NAN when there is none - absent is never 0.
+  float last(const char* id) const { return client_.last(id); }
+
+  /// The last words of a reading you asked for (a media title), or "".
+  const char* lastText(const char* id) const { return client_.lastText(id); }
   void onConnection(mdwlib::ConnectionCallback callback) { client_.onConnection(std::move(callback)); }
   void onPaused(mdwlib::PausedCallback callback) { client_.onPaused(std::move(callback)); }
 

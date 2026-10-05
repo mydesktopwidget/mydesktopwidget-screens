@@ -44,6 +44,13 @@ Client::Subscription* Client::find(const char* id) {
   return nullptr;
 }
 
+const Client::Subscription* Client::find(const char* id) const {
+  for (size_t i = 0; i < subscriptionCount_; ++i) {
+    if (std::strcmp(subscriptions_[i].id, id) == 0) return &subscriptions_[i];
+  }
+  return nullptr;
+}
+
 Client::Subscription* Client::findOrAdd(const char* id, bool family) {
   if (id == nullptr || id[0] == '\0' || std::strlen(id) > MDW_MAX_ID_LENGTH) return nullptr;
   if (isFamily(id) != family) return nullptr;
@@ -87,6 +94,20 @@ bool Client::onMissing(const char* id, MissingCallback callback) {
   if (s == nullptr) return false;
   s->missing = std::move(callback);
   return true;
+}
+
+bool Client::watch(const char* id) { return findOrAdd(id, false) != nullptr; }
+
+// The one place absent becomes NAN: `present` is false before the first frame, while the PC does not
+// send the reading, and after MyDesktopWidget goes away - so nothing else needs to clear the value.
+float Client::last(const char* id) const {
+  const Subscription* s = id == nullptr ? nullptr : find(id);
+  return s != nullptr && !s->family && s->present ? s->lastValue : NAN;
+}
+
+const char* Client::lastText(const char* id) const {
+  const Subscription* s = id == nullptr ? nullptr : find(id);
+  return s != nullptr && !s->family && s->present ? s->lastText : "";
 }
 
 void Client::setScreen(uint16_t width, uint16_t height) {
@@ -270,17 +291,23 @@ void Client::dispatchTelemetry(JsonDocument& document) {
     if (value.is<float>()) {
       s.known = true;
       s.present = true;
-      if (s.value) s.value(value.as<float>());
+      s.lastValue = value.as<float>();
+      s.lastText[0] = '\0';
+      if (s.value) s.value(s.lastValue);
     } else if (words.is<const char*>()) {
       s.known = true;
       s.present = true;
+      s.lastValue = NAN;
+      copy(s.lastText, sizeof(s.lastText), words.as<const char*>());
       if (s.text) s.text(words.as<const char*>());
-    } else if (!s.known || s.present) {
+    } else {
       // Told once, when it goes missing, rather than on every frame - a sketch redrawing "--" twice a
       // second for something that is simply not there is wasted work on a small screen.
-      s.known = true;
-      s.present = false;
-      if (s.missing) s.missing();
+      if (!s.known || s.present) {
+        s.known = true;
+        s.present = false;
+        if (s.missing) s.missing();
+      }
     }
   }
 }
