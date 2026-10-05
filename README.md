@@ -83,6 +83,29 @@ To change either, set it as a **build flag** (PlatformIO: `build_flags = -DMDW_M
 never with a `#define` in your sketch: the library is compiled separately, and the two would disagree
 about the size of its memory.
 
+## Designed screens: SquareLine Studio and EEZ Studio
+
+Design the screen in a tool, and let the library feed it - no binding code.
+
+**SquareLine Studio** (LVGL 8.3 or 9): name each widget `mdw_` followed by the reading's id, writing every
+dot as **two underscores** - `mdw_cpu__load__cpu_total`. A second widget for the same reading (an arc and
+its number) adds **three underscores and any tag**: `mdw_cpu__load__cpu_total___label`. Then, in
+`platformio.ini`:
+
+```ini
+extra_scripts = pre:.pio/libdeps/${PIOENV}/MyDesktopWidget/extras/squareline/mdw_squareline.py
+```
+
+Every build writes `src/mdw_bindings.generated.h`, listing those widgets; include it, and after
+`ui_init()` call `mdwBindLvgl(mdw, mdwLvglBindings);`. Arcs, bars and sliders get the value (set their
+range in the designer), labels the number or the words. A missing reading puts the widget in
+`LV_STATE_DISABLED` - style that state - and a label shows `--`. In the Arduino IDE, write the same list
+by hand: see [SquareLineGauge](examples/SquareLineGauge/SquareLineGauge.ino) and
+`src/MyDesktopWidgetLvgl.h`.
+
+**EEZ Studio**: one line per native variable, `MDW_EEZ_FLOAT(cpu_load, "cpu.load.cpu_total")` - see
+`src/mdw/Eez.h`. *Written from EEZ's documentation; not yet tried in EEZ Studio itself.*
+
 ## Examples
 
 | Example | Shows |
@@ -90,6 +113,7 @@ about the size of its memory.
 | [BasicGauge](examples/BasicGauge/BasicGauge.ino) | CPU and memory as bars on a Cheap Yellow Display, with "--" and a waiting screen |
 | [RgbLed](examples/RgbLed/RgbLed.ino) | No screen at all: the board's RGB LED goes from green to red with CPU load |
 | [CoreBars](examples/CoreBars/CoreBars.ino) | One bar per CPU core, from a single family subscription |
+| [SquareLineGauge](examples/SquareLineGauge/SquareLineGauge.ino) | An LVGL screen in the shape SquareLine exports, its widgets bound by their names |
 
 ## What is in this repository
 
@@ -98,7 +122,8 @@ about the size of its memory.
 | `src/` | The library. `src/mdw/` is the protocol itself, in plain C++ with no Arduino dependency |
 | `examples/` | The example sketches |
 | `extras/boards/` | Board profiles, their schema, and display setups |
-| `extras/tests/` | Off-device tests of the protocol (`host/run.ps1`) and a compile check of every example |
+| `extras/squareline/` | The build script that binds SquareLine Studio widgets named after readings |
+| `extras/tests/` | Off-device tests of the protocol, the LVGL binding and the SquareLine script (`host/run.ps1`), and a compile check of every example |
 | `extras/firmware/` | The ready firmware: flash it, then pick a skin for the screen in MyDesktopWidget. Until one is picked it shows CPU and memory |
 
 ## Supported hardware

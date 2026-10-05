@@ -2,6 +2,8 @@
 #
 #   pwsh extras/tests/host/run.ps1 [-ArduinoJson <folder containing ArduinoJson.h>]
 #
+# Runs the protocol tests, the LVGL binding tests and the SquareLine script tests (Python 3).
+#
 # Needs Visual Studio (or its Build Tools) with the C++ workload, and ArduinoJson 7. The default
 # ArduinoJson location is where `pio pkg install -g -l bblanchon/ArduinoJson` puts it.
 # SPDX-License-Identifier: MIT
@@ -25,11 +27,27 @@ $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.
 if (-not $vs) { throw 'Visual Studio with the C++ workload was not found.' }
 
 $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
-$sources = "`"$library/extras/tests/host/test_client.cpp`" `"$library/src/mdw/Client.cpp`""
-$build = "cl /nologo /std:c++17 /EHsc /W4 /WX /I`"$library/src`" /I`"$ArduinoJson`" $sources /Fe`"$out/test_client.exe`" /Fo`"$out/`""
+$client = "`"$library/src/mdw/Client.cpp`""
+$flags = "/nologo /std:c++17 /EHsc /W4 /WX /I`"$library/src`" /I`"$ArduinoJson`""
 
-cmd /c "`"$vcvars`" >nul && $build"
-if ($LASTEXITCODE -ne 0) { throw 'The tests did not compile.' }
+# The protocol, and the LVGL binding against the stand-in LVGL in fake_lvgl/ - each its own program,
+# so the stand-in never meets the protocol tests. Objects go to their own folders: both build Client.cpp.
+$failed = 0
+foreach ($test in 'test_client', 'test_lvgl') {
+    $objects = Join-Path $out $test
+    New-Item -ItemType Directory -Force $objects | Out-Null
+    $include = if ($test -eq 'test_lvgl') { "/I`"$library/extras/tests/host/fake_lvgl`"" } else { '' }
+    cmd /c "`"$vcvars`" >nul && cl $flags $include `"$library/extras/tests/host/$test.cpp`" $client /Fe`"$out/$test.exe`" /Fo`"$objects/`""
+    if ($LASTEXITCODE -ne 0) { throw "$test did not compile." }
 
-& (Join-Path $out 'test_client.exe')
-exit $LASTEXITCODE
+    Write-Host "== $test"
+    & (Join-Path $out "$test.exe")
+    if ($LASTEXITCODE -ne 0) { $failed++ }
+}
+
+# The SquareLine build script.
+Write-Host '== squareline'
+python -m unittest discover -s (Join-Path $library 'extras/tests/squareline') 2>&1 | Select-String -Pattern '^(Ran|OK|FAILED|ERROR|FAIL:)'
+if ($LASTEXITCODE -ne 0) { $failed++ }
+
+exit $failed

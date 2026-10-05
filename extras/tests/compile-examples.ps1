@@ -16,15 +16,18 @@ $flags = @(
     '-DUSER_SETUP_LOADED=1', '-DILI9341_2_DRIVER=1', '-DTFT_WIDTH=240', '-DTFT_HEIGHT=320',
     '-DTFT_MISO=12', '-DTFT_MOSI=13', '-DTFT_SCLK=14', '-DTFT_CS=15', '-DTFT_DC=2', '-DTFT_RST=-1',
     '-DTFT_BL=21', '-DTFT_BACKLIGHT_ON=HIGH', '-DUSE_HSPI_PORT=1', '-DSPI_FREQUENCY=40000000',
-    '-DLOAD_GLCD=1', '-DLOAD_FONT2=1', '-DLOAD_FONT4=1'
+    '-DLOAD_GLCD=1', '-DLOAD_FONT2=1', '-DLOAD_FONT4=1',
+    # LVGL with its defaults, for the SquareLine example: a sketch of your own brings an lv_conf.h.
+    '-DLV_CONF_SKIP=1', '-DLV_CONF_INCLUDE_SIMPLE=1'
 ) -join ' '
 
 $failed = @()
 
 foreach ($sketch in Get-ChildItem (Join-Path $library 'examples') -Recurse -Filter *.ino) {
     Write-Host "== $($sketch.Directory.Name)"
-    & $pio ci $sketch.FullName --lib $library --board esp32dev `
-        -O 'lib_deps=bodmer/TFT_eSPI@^2.5.43, bblanchon/ArduinoJson@^7.4.0' `
+    # The sketch's whole folder, so an example's own files (a SquareLine export in src/) are built too.
+    & $pio ci $sketch.Directory.FullName --lib $library --board esp32dev `
+        -O 'lib_deps=bodmer/TFT_eSPI@^2.5.43, bblanchon/ArduinoJson@^7.4.0, lvgl/lvgl@~8.3.11' `
         -O "build_flags=$flags" | Select-String -Pattern 'error|SUCCESS|FAILED|RAM:|Flash:'
     if ($LASTEXITCODE -ne 0) { $failed += $sketch.Directory.Name }
 }
